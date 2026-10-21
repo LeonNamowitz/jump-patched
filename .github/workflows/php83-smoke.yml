@@ -33,4 +33,5 @@ jobs:
             sleep 2
           done
           test "$ok" = 1
-          curl -fsS http://127.0.0.1:18123/fpm-ping
+          # This endpoint is intentionally accessible only on container loopback.
+          docker exec jump-test curl -fsS http://127.0.0.1:8080/fpm-ping
