@@ -1,4 +1,29 @@
-# Jump
+# Jump — patched PHP 8.3 fork
+
+This fork updates Jump's Docker runtime to **PHP 8.3.36 or later** and fixes
+the dynamic-property deprecations in `Jump\\Site`, `Jump\\Status`, and page classes.
+It keeps the same internal HTTP port (8080) and the original volume mounts,
+environment variables, nginx configuration and data paths.
+
+**Building with Portainer:** Images → Build a new image → **URL**. Use
+`https://github.com/LeonNamowitz/jump-patched.git` as the repository/context URL
+and `Dockerfile` as the Dockerfile path. Tag the resulting image
+`jump:php83-fixed`. Recreate the existing Jump container using this tag and
+the same volumes/environment variables. Do not use the web editor for this
+Dockerfile: its `COPY` commands require the full Git repository as context.
+
+**Building from a shell:** `docker build --pull -t jump:php83-fixed .`
+
+The build fails intentionally if the official PHP image has not yet been
+rebuilt with PHP 8.3.36+. The Composer lockfile remains unchanged; its older
+third-party deprecations are masked in production, but warnings and errors
+remain logged. The application has not yet been fully audited for third-party
+security issues.
+
+Original project: https://github.com/daledavies/jump
+
+---
+
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/daledavies/jump)
 ![PHP Version](https://img.shields.io/badge/PHP-%3E%3D8.1-blue?style=flat)
