@@ -6,10 +6,12 @@ FROM php:8.3-fpm-alpine
 # Refuse builds using a stale official Docker tag.
 RUN php -r 'if (PHP_VERSION_ID < 80336 || PHP_VERSION_ID >= 80400) { fwrite(STDERR, "PHP 8.3.36+ required; found " . PHP_VERSION . "\n"); exit(1); }'
 
+# The official PHP image already includes DOM, SimpleXML, XML, XMLReader,
+# and XMLWriter. Rebuilding these extensions causes dependency-order failures.
 RUN set -eux; \
-    apk add --no-cache bash curl nginx git unzip ca-certificates libxml2; \
-    apk add --no-cache --virtual .jump-build-deps $PHPIZE_DEPS curl-dev libxml2-dev; \
-    docker-php-ext-install -j"$(nproc)" curl dom opcache simplexml xml xmlreader xmlwriter; \
+    apk add --no-cache bash curl nginx git unzip ca-certificates; \
+    apk add --no-cache --virtual .jump-build-deps $PHPIZE_DEPS curl-dev; \
+    docker-php-ext-install -j"$(nproc)" curl opcache; \
     apk del .jump-build-deps
 
 RUN addgroup -S jumpapp && adduser -S -D -H -G jumpapp jumpapp
