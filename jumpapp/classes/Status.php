@@ -22,6 +22,8 @@ class Status {
 
     private $connectionTimeout = 10;
     private $requestTimeout = 30;
+    private mixed $status;
+    private \GuzzleHttp\Client $client;
 
     /**
      * Allows for checking if a site is online/offline or returns an error code.
