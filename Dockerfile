@@ -1,74 +1,46 @@
-# This dockerfile is intended to built using buildx to enable multi-platform
-# images...
-# https://docs.docker.com/desktop/multi-arch/
-# docker buildx create --name mybuilder
-# docker buildx use mybuilder
-# docker buildx inspect --bootstrap
-# docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 -t daledavies/jump:v1.1.3 --push .
+# Build Jump directly from this fork; do not reuse obsolete PHP 8.1 layers.
+FROM composer:2 AS composer-bin
+FROM php:8.3-fpm-alpine
 
-# Start with the official composer image, copy application files and install
-# dependencies.
-FROM --platform=$BUILDPLATFORM composer AS builder
-COPY jumpapp/ /app
-RUN composer install --no-dev \
-  --optimize-autoloader \
-  --no-interaction \
-  --no-progress
+# The October 2026 critical PHP fixes are present from 8.3.36 onwards.
+# Refuse builds using a stale official Docker tag.
+RUN php -r 'if (PHP_VERSION_ID < 80336 || PHP_VERSION_ID >= 80400) { fwrite(STDERR, "PHP 8.3.36+ required; found " . PHP_VERSION . "\n"); exit(1); }'
 
-# Switch to base alpine image so we can copy application files into it.
-FROM alpine:latest
+# The official PHP image already includes DOM, SimpleXML, XML, XMLReader,
+# and XMLWriter. Rebuilding these extensions causes dependency-order failures.
+RUN set -eux; \
+    apk add --no-cache bash curl nginx git unzip ca-certificates; \
+    apk add --no-cache --virtual .jump-build-deps $PHPIZE_DEPS curl-dev; \
+    docker-php-ext-install -j"$(nproc)" curl opcache; \
+    apk del .jump-build-deps
+
+RUN addgroup -S jumpapp && adduser -S -D -H -G jumpapp jumpapp
+
+# Use Composer with exactly the PHP version the application runs on.
+COPY --from=composer-bin /usr/bin/composer /usr/local/bin/composer
+WORKDIR /usr/src/jumpapp
+COPY jumpapp/ /usr/src/jumpapp/
+RUN COMPOSER_ALLOW_SUPERUSER=1 composer install \
+    --no-dev --optimize-autoloader --no-interaction --no-progress --prefer-dist
+
+# Preserve the original nginx configuration, volumes and Unix socket.
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+COPY docker/fpm-pool.conf /usr/local/etc/php-fpm.d/zzzz-jump.conf
+COPY docker/php.ini /usr/local/etc/php/conf.d/99-jump.ini
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+RUN set -eux; \
+    cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"; \
+    chmod +x /usr/local/bin/entrypoint.sh; \
+    mkdir -p /var/www/html /var/www/cache; \
+    chown -R jumpapp:jumpapp /var/www/html /var/www/cache /usr/src/jumpapp; \
+    php -l /usr/src/jumpapp/classes/Site.php; \
+    php -l /usr/src/jumpapp/classes/Status.php; \
+    php -l /usr/src/jumpapp/classes/Pages/AbstractPage.php; \
+    php -l /usr/src/jumpapp/classes/Pages/TagPage.php; \
+    php -r 'foreach (["curl", "dom", "fileinfo", "openssl", "session", "simplexml", "xml", "xmlreader", "xmlwriter", "zlib"] as $ext) { if (!extension_loaded($ext)) { fwrite(STDERR, "Missing extension: $ext\n"); exit(1); } }'
 
 WORKDIR /var/www/html
-
-# Create a non-root user for running nginx and php.
-RUN addgroup -S jumpapp && \
-    adduser \
-      --disabled-password \
-      --ingroup jumpapp \
-      --no-create-home \
-      jumpapp
-
-# Copy the built files from composer, chowning as jumpapp or they will
-# be owned by root.
-COPY --chown=jumpapp --from=builder /app /usr/src/jumpapp
-
-# Install required packages.
-RUN apk add --no-cache \
-  bash \
-  curl \
-  nginx \
-  php81 \
-  php81-curl \
-  php81-dom \
-  php81-fileinfo \
-  php81-fpm \
-  php81-json \
-  php81-opcache \
-  php81-openssl \
-  php81-session \
-  php81-xml \
-  php81-zlib
-
-# Create symlink for anything expecting to use "php".
-RUN ln -s -f /usr/bin/php81 /usr/bin/php
-
-# Nginx config.
-COPY docker/nginx.conf /etc/nginx/nginx.conf
-
-# PHP/FPM config.
-COPY docker/fpm-pool.conf /etc/php81/php-fpm.d/www.conf
-COPY docker/php.ini /etc/php81/conf.d/custom.ini
-
-COPY docker/entrypoint.sh /usr/local/bin/
-
-# Create the cache directories and change owner of everything we need.
-RUN mkdir /var/www/cache \
-    && chown -R jumpapp:jumpapp /var/www/html /var/www/cache \
-    && chmod +x /usr/local/bin/entrypoint.sh
-
-# Expose the port we configured for nginx.
 EXPOSE 8080
-
-ENTRYPOINT ["entrypoint.sh"]
-
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 HEALTHCHECK --timeout=10s CMD curl --silent --fail http://127.0.0.1:8080/fpm-ping || exit 1
