@@ -27,6 +27,10 @@ class Site {
     public ?string $iconname;
     public string $url;
     public array $tags = ['home'];
+    // Preserve the original values and serialized cache representation.
+    public mixed $newtab;
+    public mixed $description;
+    public mixed $status;
 
     /**
      * Parse the data required to represent a site and provide method for generating
