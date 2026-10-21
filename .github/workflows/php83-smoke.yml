@@ -1,0 +1,36 @@
+name: PHP 8.3 Docker smoke test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build --pull --tag jump-patched:test .
+      - name: Verify PHP security version
+        run: |
+          docker run --rm --entrypoint php jump-patched:test -r \
+            'if (PHP_VERSION_ID < 80336 || PHP_VERSION_ID >= 80400) { exit(1); } echo PHP_VERSION, "\n";'
+      - name: Smoke test HTTP and PHP-FPM
+        run: |
+          set -eu
+          docker run -d --name jump-test -p 127.0.0.1:18123:8080 jump-patched:test
+          trap 'docker logs jump-test; docker rm -f jump-test >/dev/null' EXIT
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18123/ -o /tmp/jump-home.html; then
+              if grep -iq '<html' /tmp/jump-home.html && \
+                 ! grep -q 'Something went wrong' /tmp/jump-home.html; then
+                ok=1
+                break
+              fi
+            fi
+            sleep 2
+          done
+          test "$ok" = 1
+          curl -fsS http://127.0.0.1:18123/fpm-ping
